@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 import http.server, json, os, time
 LOG = os.environ["LOG_FILE"]; PORT = int(os.environ["PORT"])
+
+TOOLS = [
+    {
+        "name": "call-tool",
+        "description": "Reference tool exposed by the plugin's HTTP MCP server. Echoes back the payload it received.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"payload": {"type": "string", "description": "Arbitrary string payload"}},
+            "required": ["payload"],
+        },
+    },
+]
+
+
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def _log(self,s):
@@ -14,7 +28,16 @@ class H(http.server.BaseHTTPRequestHandler):
         if m and m.startswith("notifications/"):
             self.send_response(202); self.end_headers(); return
         if m=="initialize": r={"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"p","version":"0"}}
-        elif m=="tools/list": r={"tools":[]}
+        elif m=="tools/list": r={"tools": TOOLS}
+        elif m=="tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {}) or {}
+            if name == "call-tool":
+                payload = args.get("payload", "")
+                r = {"content": [{"type": "text", "text": f"received payload: {payload}"}], "isError": False}
+            else:
+                r = {"content": [{"type": "text", "text": f"unknown tool: {name}"}], "isError": True}
         elif m=="resources/list": r={"resources":[]}
         elif m=="prompts/list": r={"prompts":[]}
         else: r={}
