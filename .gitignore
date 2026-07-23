@@ -1,0 +1,5 @@
+/log
+/sessions.sqlite
+/sessions.sqlite-journal
+__pycache__/
+*.pyc

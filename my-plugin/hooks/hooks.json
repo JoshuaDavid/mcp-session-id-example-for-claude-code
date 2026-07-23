@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"$(date +%s.%N)  PLUGIN_HOOK SessionStart fired\" >> /tmp/refplugin-ZH8b/log"
+          }
+        ]
+      }
+    ]
+  }
+}
