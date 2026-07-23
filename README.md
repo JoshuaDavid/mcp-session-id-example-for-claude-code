@@ -1,13 +1,55 @@
-# Claude Code reference plugin
+# Claude Code reference plugin — MCP session-id workaround
 
-A minimal, working plugin that exercises every component surface
-Claude Code exposes to plugins: MCP server, lifecycle hook, slash
-command, skill, and subagent. Also demonstrates a practical
-correlation pattern for stitching together the two things Claude Code
-does not natively connect — HTTP MCP requests and the Claude Code
-session that made them.
+**This plugin exists to demonstrate a working workaround for
+[anthropics/claude-code#41836][issue] — "No session/conversation
+identifier sent to MCP servers — cannot distinguish concurrent
+sessions."**
 
-Layout:
+[issue]: https://github.com/anthropics/claude-code/issues/41836
+
+## The problem, in one paragraph
+
+When Claude Code talks to an HTTP MCP server, the wire protocol carries
+no identifier for the Claude Code session behind the request. No
+header, no URL parameter, no `clientInfo` field, no `_meta` entry —
+verified empirically against Claude Code 2.1.133. `Mcp-Session-Id`
+returned by the server on `initialize` is not echoed back on later
+requests either. So an HTTP MCP server hit by multiple concurrent
+Claude Code users has no wire-level way to attribute a tool call to
+the conversation that made it, and cannot maintain per-conversation
+state.
+
+## The workaround this plugin demonstrates
+
+Claude Code exposes two side channels that *can* see the session
+identifier: the `SessionStart` hook (which receives it on stdin) and
+the plugin's own shell environment (via `CLAUDE_CODE_SESSION_ID`).
+Neither ships with the HTTP request, but we can bridge them:
+
+1. When the MCP connection initializes, a `headersHelper` shell
+   command mints a random `mcp_startup_id`, writes it to a rendezvous
+   file keyed by claude's PID (`/tmp/refplugin-startup-$PPID`), and
+   returns it as an `x-mcp-startup-id` HTTP header. This header ships
+   on every request to the MCP endpoint for the lifetime of the
+   connection.
+2. Slightly later, the `SessionStart` hook fires. It's a direct child
+   of the same claude process, so its `$PPID` matches the helper's.
+   It reads the rendezvous file, receives the Claude Code
+   `session_id` on stdin, and POSTs
+   `{mcp_startup_id, claude_code_session_id, claude_code_pid, source}`
+   to a `/register-session` endpoint on the server.
+3. The server persists both halves and joins `tool_calls` to
+   `sessions` on `mcp_startup_id` when rendering the dashboard.
+
+Result: every HTTP MCP tool call is attributable to a specific
+Claude Code session, without any changes to Claude Code itself.
+
+Bonus: since the plugin has to demonstrate all this end-to-end, it
+also happens to exercise every plugin component surface Claude Code
+supports (MCP server, hook, slash command, skill, subagent), so it
+doubles as a minimal reference for those.
+
+## Layout
 
 ```
 .
@@ -15,97 +57,76 @@ Layout:
 └── my-plugin/
     ├── .claude-plugin/
     │   └── plugin.json    # plugin manifest
-    ├── .mcp.json          # MCP server config (points at mcp-server.py)
+    ├── .mcp.json          # MCP config: url + headersHelper
     ├── hooks/
     │   ├── hooks.json     # SessionStart hook registration
     │   └── session-start.sh
     ├── commands/
-    │   └── plugincmd.md   # slash command
+    │   └── plugincmd.md   # slash command (demo)
     ├── skills/
     │   └── probe-skill/
-    │       └── SKILL.md
+    │       └── SKILL.md   # skill (demo)
     └── agents/
-        └── probe-agent.md
+        └── probe-agent.md # subagent (demo)
 ```
 
 ## Running it
 
-Start the server in one terminal:
+Start the server:
 
 ```
 LOG_FILE=/tmp/refplugin-log PORT=18796 python3 mcp-server.py
 ```
 
-Then in another terminal launch Claude Code with the plugin loaded:
+In another terminal, launch Claude Code with the plugin loaded:
 
 ```
 claude --plugin-dir ./my-plugin
 ```
 
-Open http://127.0.0.1:18796/ for the dashboard. Every tool call
-routed through this plugin's MCP is recorded and joined to the
-Claude Code session that made it.
+Ask Claude Code to call the tool ("call the plugin-mcp call-tool
+with any payload"), then open http://127.0.0.1:18796/ — you'll see
+the tool call attributed to the Claude Code session id that produced
+it.
 
-## Exercising each surface
+## Exercising the other surfaces
 
-- **Slash command:** type `/reference-plugin:plugincmd anything` in
-  Claude Code. Plugin commands are namespaced `<plugin>:<command>`.
-- **Skill:** type `/probe-skill`. Skills are invoked by their bare
-  name (no namespace).
+The MCP correlation is the primary point, but the plugin also
+demonstrates the other component types:
+
+- **Slash command:** `/reference-plugin:plugincmd anything`. Plugin
+  commands are namespaced `<plugin>:<command>`.
+- **Skill:** `/probe-skill`. Skills use the bare skill name.
 - **Subagent:** ask Claude Code to use the `probe-agent` subagent via
-  the Agent tool — subagents are not slash-invokable.
-- **MCP tool:** ask Claude Code to call `call-tool` with a payload.
+  the Agent tool. Subagents are not slash-invokable.
 - **Hook:** fires automatically on every SessionStart (including
   after `/clear`, `/compact`, `/resume`).
 
-## The correlation pattern
-
-The Claude Code session id is *not* transmitted in HTTP MCP requests
-— neither in headers, URL, request body, nor `_meta`. To attribute
-tool calls to sessions we bridge two out-of-band channels:
-
-1. `headersHelper` in `.mcp.json` runs a shell command at MCP init
-   time. Its stdout is parsed as JSON and used as HTTP headers on
-   every subsequent request to the MCP endpoint. We mint a random
-   `mcp_startup_id`, write it to `/tmp/refplugin-startup-$PPID`, and
-   emit it as `x-mcp-startup-id`.
-2. `session-start.sh` runs later as a SessionStart hook. It shares
-   the same PPID as `headersHelper` (both are direct children of the
-   claude process), reads the rendezvous file, receives the
-   Claude Code `session_id` on stdin, and POSTs the tuple to
-   `/register-session`.
-3. The server persists both sides and joins on `mcp_startup_id` when
-   rendering the dashboard.
-
-### What lives where in the timeline
+## Timing details for the correlation
 
 ```
-+0ms    MCP initialize      ← headersHelper runs here (once)
-+~200ms SessionStart hook   ← rendezvous read here (once per session_id)
-...     tool calls          ← each carries x-mcp-startup-id
++0ms     MCP initialize        ← headersHelper runs here (once)
++~200ms  SessionStart hook     ← rendezvous read here
+...      tool calls            ← each carries x-mcp-startup-id
 ```
 
-`headersHelper` fires exactly once per claude process. SessionStart
+`headersHelper` fires exactly once per claude process. `SessionStart`
 fires again on `/clear`, `/compact`, and `/resume` — with the same
 PPID but a fresh `session_id` — so one `mcp_startup_id` accumulates
 multiple `session_id` rows over the lifetime of a Claude Code
 launch.
 
-### Ordering caveat
-
-MCP init runs before the SessionStart hook fires, so any scheme
-where the *hook* mints the id and the *helper* reads it will not
-work — the helper has already sent its first requests by the time
-the hook can write anything. That's why the direction is
+**Ordering constraint.** MCP init runs before the SessionStart hook,
+so any scheme where the *hook* mints the id and the *helper* reads
+it will not work — the helper has already sent its first requests by
+the time the hook can write anything. The direction has to be
 helper-writes / hook-reads.
 
-### Concurrency
+**Concurrency.** Two Claude Code sessions running simultaneously
+each have a unique claude PID, which becomes the rendezvous
+filename's suffix, so they never collide.
 
-Two Claude Code sessions running simultaneously each have a unique
-claude PID, which becomes the rendezvous filename's PPID suffix, so
-they never collide.
-
-## Component notes worth stashing
+## Component gotchas worth stashing
 
 - **Hook `hooks.json` shape** requires an outer `hooks` wrapper:
   `{"hooks": {"SessionStart": [{"hooks": [{"type":"command","command":"..."}]}]}}`.
@@ -126,3 +147,13 @@ they never collide.
   substituted by Claude Code (not bash) before the body is
   interpreted. Off-by-one gotcha: `$0` is the first user-provided
   arg, so `$1` is the *second* one.
+
+## When this workaround stops being necessary
+
+If [#41836][issue] ships — for example, Claude Code echoing back
+`Mcp-Session-Id` per the MCP Streamable HTTP spec, or exposing a
+Claude-scoped `X-Claude-Conversation-Id` header — the rendezvous
+dance in this plugin becomes obsolete. The plugin components would
+still be useful as component-surface examples, but the correlation
+pattern itself is entirely a workaround for the missing wire-level
+identifier.
