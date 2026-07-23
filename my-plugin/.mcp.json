@@ -3,7 +3,7 @@
     "plugin-mcp": {
       "type": "http",
       "url": "http://127.0.0.1:18796/mcp",
-      "headersHelper": "echo \"$(python3 -c 'import time; print(f\\\"{time.time():.3f}\\\")') PLUGIN_HELPER fired\" >> /tmp/refplugin-ZH8b/log; echo '{\"x-from-plugin\":\"yes\"}'"
+      "headersHelper": "STARTUP_ID=$(xxd -ps -c16 -l16 /dev/urandom); printf '%s' \"$STARTUP_ID\" > \"/tmp/refplugin-startup-$PPID\"; printf '{\"x-mcp-startup-id\":\"%s\"}\\n' \"$STARTUP_ID\""
     }
   }
 }

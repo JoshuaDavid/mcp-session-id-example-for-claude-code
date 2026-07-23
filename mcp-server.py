@@ -134,7 +134,28 @@ class H(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(n).decode() if n else ""
         if self.path.rstrip("/") == "/mcp":
             self._handle_mcp(body); return
+        if self.path.rstrip("/") == "/register-session":
+            self._handle_register(body); return
         self._respond(404)
+
+    def _handle_register(self, body):
+        try:
+            payload = json.loads(body)
+        except Exception:
+            self._respond(400); return
+        required = ("mcp_startup_id", "claude_code_session_id", "claude_code_pid")
+        if not all(k in payload for k in required):
+            self._respond(400, b"missing required fields"); return
+        c = db()
+        c.execute(
+            "INSERT INTO sessions(mcp_startup_id, claude_code_session_id, claude_code_pid, source, registered_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (payload["mcp_startup_id"], payload["claude_code_session_id"],
+             int(payload["claude_code_pid"]), payload.get("source", ""), time.time()),
+        )
+        c.commit(); c.close()
+        log(f"REGISTER startup={payload['mcp_startup_id']} sid={payload['claude_code_session_id']} pid={payload['claude_code_pid']} source={payload.get('source','')}")
+        self._respond(200, b"ok")
 
     def _handle_mcp(self, body):
         try:
