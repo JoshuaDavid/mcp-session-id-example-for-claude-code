@@ -5,6 +5,8 @@
 identifier sent to MCP servers — cannot distinguish concurrent
 sessions."**
 
+NOTE THAT FOR THIS WORKAROUND TO BE USEFUL YOU MUST CONTROL THE HTTP MCP SERVER - though if you *don't* control the HTTP mcp server you probably also aren't doing anything special with a Claude Code Session ID header.
+
 [issue]: https://github.com/anthropics/claude-code/issues/41836
 
 ## The problem, in one paragraph
