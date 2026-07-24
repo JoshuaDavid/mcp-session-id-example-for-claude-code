@@ -89,7 +89,9 @@ claude --plugin-dir ./my-plugin
 Ask Claude Code to call the tool ("call the plugin-mcp call-tool
 with any payload"), then open http://127.0.0.1:18796/ — you'll see
 the tool call attributed to the Claude Code session id that produced
-it.
+it. That will look something like this:
+
+<img width="488" height="801" alt="image" src="https://github.com/user-attachments/assets/865d7dca-3a9f-404f-a60a-ea6bc1de8125" />
 
 ## Exercising the other surfaces
 
