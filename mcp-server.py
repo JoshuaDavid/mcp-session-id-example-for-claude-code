@@ -39,7 +39,8 @@ CREATE INDEX IF NOT EXISTS idx_toolcalls_startup ON tool_calls(mcp_startup_id);
 
 
 def db():
-    c = sqlite3.connect(DB)
+    c = sqlite3.connect(DB, timeout=5)
+    c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
     return c
 
@@ -114,12 +115,18 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
     def _respond(self, code, body=b"", ct="text/plain"):
-        self.send_response(code)
-        self.send_header("Content-Type", ct)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # MCP clients routinely drop the connection between notifications
+            # and follow-up requests; swallow the write failure rather than
+            # let it bubble up as a socketserver-level exception.
+            pass
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -203,4 +210,4 @@ if __name__ == "__main__":
     open(LOG, "w").close()
     db().close()
     print(f"listening on http://127.0.0.1:{PORT}/  (MCP at /mcp, dashboard at /)")
-    http.server.HTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    http.server.ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
