@@ -52,9 +52,16 @@ def log(s):
 
 def render_index() -> bytes:
     c = db()
+    # Sort startups by earliest observed activity, most recent first.
+    # A startup shows up in `sessions` once its SessionStart hook has POSTed;
+    # if we've received tool calls but no registration yet (rare timing
+    # window), fall back to the tool_calls timestamps so it still sorts.
     startups = [r[0] for r in c.execute(
-        "SELECT DISTINCT mcp_startup_id FROM sessions "
-        "UNION SELECT DISTINCT mcp_startup_id FROM tool_calls"
+        "SELECT mcp_startup_id FROM ("
+        "  SELECT mcp_startup_id, registered_at AS ts FROM sessions"
+        "  UNION ALL"
+        "  SELECT mcp_startup_id, called_at AS ts FROM tool_calls"
+        ") GROUP BY mcp_startup_id ORDER BY MIN(ts) DESC"
     ).fetchall()]
     rows = []
     for sid in startups:
