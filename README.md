@@ -89,9 +89,20 @@ claude --plugin-dir ./my-plugin
 Ask Claude Code to call the tool ("call the plugin-mcp call-tool
 with any payload"), then open http://127.0.0.1:18796/ — you'll see
 the tool call attributed to the Claude Code session id that produced
-it. That will look something like this:
+it.
 
-<img width="488" height="801" alt="image" src="https://github.com/user-attachments/assets/865d7dca-3a9f-404f-a60a-ea6bc1de8125" />
+You can quickly test with `-p` as well, you don't need to operate interactively. e.g.
+
+```
+claude --plugin-dir ./my-plugin -p 'Call tool named `call-tool` with payload "first"'
+claude --plugin-dir ./my-plugin -p 'Call tool named `call-tool` with payload "second"'
+claude --plugin-dir ./my-plugin -p 'Call tool named `call-tool` with payload "third"'
+claude --plugin-dir ./my-plugin -p 'Call tool named `call-tool` with "hi from session 4", then again with "hi again from session 4"'
+```
+
+That will produce a dashboard that looks something like this:
+
+<img width="488" height="801" alt="Screenshot of the startup viewer running on port 18796, showing that there are 4 sessions, each having tool calls correctly associated with them" src="https://raw.githubusercontent.com/JoshuaDavid/mcp-session-id-example-for-claude-code/refs/heads/main/mcp_startup_viewer_screenshot.png" />
 
 ## Exercising the other surfaces
 
